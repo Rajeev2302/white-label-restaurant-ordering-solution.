@@ -1,4 +1,4 @@
-# Lakshmi Ganesh Restaurant - QR ordering system
+# A White-Label Restaurant Ordering Solution.
 
 A production-ready QR-based restaurant ordering system with real-time status tracking for customer ordering and kitchen staff dashboard.
 
