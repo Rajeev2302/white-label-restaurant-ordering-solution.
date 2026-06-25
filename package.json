@@ -1,0 +1,23 @@
+{
+  "name": "lakshmi-ganesh-restaurant",
+  "version": "1.0.0",
+  "description": "QR-based Restaurant Ordering System for Lakshmi Ganesh Restaurant",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend",
+    "staff-dashboard"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --workspace=backend",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "dev:staff": "npm run dev --workspace=staff-dashboard",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:staff\"",
+    "build:frontend": "npm run build --workspace=frontend",
+    "build:staff": "npm run build --workspace=staff-dashboard",
+    "build": "npm run build:frontend && npm run build:staff"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
