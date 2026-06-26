@@ -4,11 +4,10 @@ import JSZip from 'jszip';
 import { jsPDF } from 'jspdf';
 import { Download, QrCode, ArrowLeft, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 
-export default function QrGeneratorPage({ settings, setCurrentPath }) {
-  const [baseUrl, setBaseUrl] = useState(() => {
-    // Default to the current host origin (e.g. http://localhost:5173/)
-    return window.location.origin + '/';
-  });
+export default function QrGeneratorPage({ settings, setCurrentPath, onLogout }) {
+  const [baseUrl, setBaseUrl] = useState(
+    "https://serveqr-customer.onrender.com/"
+);
   const [numTables, setNumTables] = useState(5);
   const [startTable, setStartTable] = useState(1);
   const [endTable, setEndTable] = useState(5);
@@ -459,17 +458,28 @@ export default function QrGeneratorPage({ settings, setCurrentPath }) {
           </div>
         </div>
 
-        {/* Back navigation */}
-        <button 
-          onClick={() => {
-            setCurrentPath('/setup');
-            window.history.pushState({}, '', '/setup');
-          }} 
-          className="back-to-menu-link-btn"
-          style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '20px' }}
-        >
-          <ArrowLeft size={16} /> Back to Setup Settings Panel
-        </button>
+        {/* Back navigation & Logout */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
+          <button 
+            onClick={() => {
+              setCurrentPath('/setup');
+              window.history.pushState({}, '', '/setup');
+            }} 
+            className="back-to-menu-link-btn"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', width: '100%' }}
+          >
+            <ArrowLeft size={16} /> Back to Setup Settings Panel
+          </button>
+
+          <button 
+            type="button"
+            onClick={onLogout} 
+            className="reset-setup-btn"
+            style={{ width: 'auto', margin: '0 auto', border: '1px solid rgba(239, 68, 68, 0.35)', color: '#f87171', background: 'rgba(239, 68, 68, 0.05)', fontSize: '13px', padding: '8px 20px' }}
+          >
+            Logout Session
+          </button>
+        </div>
       </div>
     </div>
   );

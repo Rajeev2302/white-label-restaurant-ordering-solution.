@@ -727,6 +727,36 @@ app.put('/api/orders/:id/payment', async (req, res, next) => {
   }
 });
 
+/**
+ * POST /api/setup/verify
+ * Verifies the setup admin password.
+ */
+app.post('/api/setup/verify', (req, res, next) => {
+  try {
+    const { password } = req.body;
+    const adminPassword = process.env.SETUP_ADMIN_PASSWORD || 'admin123';
+
+    if (!password) {
+      const error = new Error('Password is required');
+      error.statusCode = 400;
+      return next(error);
+    }
+
+    if (password === adminPassword) {
+      res.json({
+        success: true,
+        message: 'Authentication successful'
+      });
+    } else {
+      const error = new Error('Incorrect admin password');
+      error.statusCode = 401;
+      return next(error);
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Health Check API
 app.get('/api/health', async (_req, res, next) => {
   try {

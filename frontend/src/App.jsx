@@ -92,6 +92,10 @@ function App() {
   });
   const [activeOrderStatus, setActiveOrderStatus] = useState('pending');
 
+  const [isSetupAuthenticated, setIsSetupAuthenticated] = useState(() => {
+    return sessionStorage.getItem('lgr_setup_auth') === 'true';
+  });
+
   // Polling for active order status
   useEffect(() => {
     if (!activeOrderId) return;
@@ -410,12 +414,30 @@ function App() {
     });
   };
 
+  if (currentPath === '/setup' || currentPath === '/setup/qr') {
+    if (!isSetupAuthenticated) {
+      return (
+        <SetupLoginPage 
+          onLoginSuccess={() => setIsSetupAuthenticated(true)} 
+          settings={settings} 
+          setCurrentPath={setCurrentPath} 
+        />
+      );
+    }
+  }
+
   if (currentPath === '/setup') {
     return (
       <SetupPage 
         settings={settings} 
         setSettings={setSettings} 
         setCurrentPath={setCurrentPath} 
+        onLogout={() => {
+          setIsSetupAuthenticated(false);
+          sessionStorage.removeItem('lgr_setup_auth');
+          setCurrentPath('/');
+          window.history.pushState({}, '', '/');
+        }}
       />
     );
   }
@@ -425,6 +447,12 @@ function App() {
       <QrGeneratorPage 
         settings={settings} 
         setCurrentPath={setCurrentPath} 
+        onLogout={() => {
+          setIsSetupAuthenticated(false);
+          sessionStorage.removeItem('lgr_setup_auth');
+          setCurrentPath('/');
+          window.history.pushState({}, '', '/');
+        }}
       />
     );
   }
@@ -1069,7 +1097,7 @@ function App() {
   );
 }
 
-function SetupPage({ settings, setSettings, setCurrentPath }) {
+function SetupPage({ settings, setSettings, setCurrentPath, onLogout }) {
   const [form, setForm] = useState({
     restaurantName: settings.restaurantName || '',
     logoUrl: settings.logoUrl || '',
@@ -1497,15 +1525,27 @@ function SetupPage({ settings, setSettings, setCurrentPath }) {
           </div>
         </div>
 
-        <button 
-          onClick={() => {
-            setCurrentPath('/');
-            window.history.pushState({}, '', '/');
-          }} 
-          className="back-to-menu-link-btn"
-        >
-          Go to Customer Menu Page
-        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
+          <button 
+            onClick={() => {
+              setCurrentPath('/');
+              window.history.pushState({}, '', '/');
+            }} 
+            className="back-to-menu-link-btn"
+            style={{ width: '100%' }}
+          >
+            Go to Customer Menu Page
+          </button>
+          
+          <button 
+            type="button"
+            onClick={onLogout} 
+            className="reset-setup-btn"
+            style={{ width: 'auto', margin: '0 auto', border: '1px solid rgba(239, 68, 68, 0.35)', color: '#f87171', background: 'rgba(239, 68, 68, 0.05)', fontSize: '13px', padding: '8px 20px' }}
+          >
+            Logout Session
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1679,6 +1719,134 @@ function OrderStatusPage({ settings, setCurrentPath, activeOrderId, activeOrderS
             Order More Food
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function SetupLoginPage({ onLoginSuccess, settings, setCurrentPath }) {
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!password) return;
+    setLoading(true);
+    setError('');
+
+    fetch('/api/setup/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    })
+    .then(async res => {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Incorrect password');
+      }
+      return res.json();
+    })
+    .then(data => {
+      if (data.success) {
+        sessionStorage.setItem('lgr_setup_auth', 'true');
+        onLoginSuccess();
+      }
+      setLoading(false);
+    })
+    .catch(err => {
+      console.error('[Setup Login Error]', err);
+      setError(err.message || 'Authentication failed. Please try again.');
+      setLoading(false);
+    });
+  };
+
+  return (
+    <div className="setup-container">
+      <div className="setup-card" style={{ maxWidth: '400px', margin: '80px auto' }}>
+        <div className="setup-header" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '8px' }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '60px',
+            height: '60px',
+            borderRadius: '20px',
+            background: 'rgba(var(--gold-accent-rgb, 212, 175, 55), 0.08)',
+            border: '1.5px solid var(--gold-accent)',
+            marginBottom: '8px',
+            boxShadow: '0 0 15px rgba(var(--gold-accent-rgb, 212, 175, 55), 0.15)'
+          }}>
+            <UtensilsCrossed size={28} className="gold" />
+          </div>
+          <h2>Setup Admin Access</h2>
+          <p>Please enter the administrator password to view the Installer Configurator.</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="setup-form" style={{ marginTop: '24px' }}>
+          <div className="form-group full-width">
+            <label>Admin Password</label>
+            <input 
+              type="password" 
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+              disabled={loading}
+              autoFocus
+              style={{
+                background: 'rgba(255, 255, 255, 0.02)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                color: 'var(--text-main)',
+                padding: '12px',
+                borderRadius: '8px',
+                width: '100%',
+                fontSize: '14px',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+              }}
+            />
+          </div>
+
+          {error && (
+            <div className="status-banner error" style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '12px',
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              borderRadius: '8px',
+              color: '#f87171',
+              fontSize: '13px',
+              marginTop: '16px'
+            }}>
+              <AlertTriangle size={16} />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '24px' }}>
+            <button 
+              type="submit" 
+              className="save-setup-btn"
+              disabled={loading || !password}
+              style={{ width: '100%', padding: '12px', fontSize: '14px' }}
+            >
+              {loading ? 'Authenticating...' : 'Authenticate'}
+            </button>
+            <button 
+              type="button" 
+              onClick={() => {
+                setCurrentPath('/');
+                window.history.pushState({}, '', '/');
+              }} 
+              className="back-to-menu-link-btn"
+              style={{ margin: '0 auto', fontSize: '13px' }}
+            >
+              Back to Customer Menu
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
