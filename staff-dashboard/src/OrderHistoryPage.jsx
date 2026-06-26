@@ -12,7 +12,8 @@ import {
   DollarSign,
   FilterX,
   Download,
-  Archive
+  Archive,
+  Trash2
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 
@@ -385,6 +386,64 @@ function OrderHistoryPage({ settings }) {
       });
   };
 
+  // Delete a single completed/served/cancelled order
+  const handleDeleteOrder = (orderId) => {
+    if (!window.confirm("Are you sure you want to permanently delete this order?")) {
+      return;
+    }
+    
+    setLoading(true);
+    fetch(`${API_BASE_URL}/api/orders/${orderId}`, {
+      method: 'DELETE'
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to delete order');
+        return res.json();
+      })
+      .then(data => {
+        if (data.success) {
+          fetchOrders();
+        } else {
+          alert('Failed to delete order: ' + data.message);
+          setLoading(false);
+        }
+      })
+      .catch(err => {
+        console.error('[Delete Order Error]', err);
+        alert(err.message || 'Unable to delete order. Please try again.');
+        setLoading(false);
+      });
+  };
+
+  // Delete all completed/served/cancelled order history
+  const handleDeleteAllHistory = () => {
+    if (!window.confirm("This action cannot be undone. Delete all order history?")) {
+      return;
+    }
+    
+    setLoading(true);
+    fetch(API_BASE_URL + '/api/orders', {
+      method: 'DELETE'
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to delete order history');
+        return res.json();
+      })
+      .then(data => {
+        if (data.success) {
+          fetchOrders();
+        } else {
+          alert('Failed to delete history: ' + data.message);
+          setLoading(false);
+        }
+      })
+      .catch(err => {
+        console.error('[Delete History Error]', err);
+        alert(err.message || 'Unable to delete order history. Please try again.');
+        setLoading(false);
+      });
+  };
+
   const toggleExpand = (orderId) => {
     setExpandedOrderId(prev => prev === orderId ? null : orderId);
   };
@@ -538,6 +597,28 @@ function OrderHistoryPage({ settings }) {
           }}>
             <Download size={14} />
             <span>Today's PDF</span>
+          </button>
+
+          <button onClick={handleDeleteAllHistory} style={{
+            background: 'rgba(239, 68, 68, 0.08)',
+            border: '1px solid rgba(239, 68, 68, 0.25)',
+            color: 'var(--accent-rose)',
+            padding: '10px 16px',
+            borderRadius: 'var(--radius-sm)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontFamily: 'var(--font-title)',
+            fontWeight: '600',
+            fontSize: '13px',
+            transition: 'all 0.2s ease'
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)'}
+          >
+            <Trash2 size={14} />
+            <span>Delete All History</span>
           </button>
 
           <button className="refresh-kitchen-btn" onClick={fetchOrders} style={{
@@ -1010,27 +1091,53 @@ function OrderHistoryPage({ settings }) {
                         <span>Order status is locked as <strong>{order.status.toUpperCase()}</strong>. You can modify payment status.</span>
                       </div>
 
-                      <button 
-                        onClick={() => handleTogglePayment(order.id, order.paymentStatus)}
-                        style={{
-                          background: order.paymentStatus === 'Paid' ? 'rgba(239, 68, 68, 0.08)' : 'rgba(16, 185, 129, 0.08)',
-                          border: `1px solid ${order.paymentStatus === 'Paid' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(16, 185, 129, 0.25)'}`,
-                          color: order.paymentStatus === 'Paid' ? 'var(--accent-rose)' : 'var(--accent-emerald)',
-                          padding: '8px 16px',
-                          borderRadius: '8px',
-                          fontSize: '12.5px',
-                          fontWeight: '700',
-                          fontFamily: 'var(--font-title)',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          transition: 'all 0.2s ease'
-                        }}
-                      >
-                        <DollarSign size={14} />
-                        <span>Mark as {order.paymentStatus === 'Paid' ? 'Unpaid' : 'Paid'}</span>
-                      </button>
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        <button 
+                          onClick={() => handleDeleteOrder(order.id)}
+                          style={{
+                            background: 'rgba(239, 68, 68, 0.08)',
+                            border: '1px solid rgba(239, 68, 68, 0.25)',
+                            color: 'var(--accent-rose)',
+                            padding: '8px 16px',
+                            borderRadius: '8px',
+                            fontSize: '12.5px',
+                            fontWeight: '700',
+                            fontFamily: 'var(--font-title)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            transition: 'all 0.2s ease'
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)'}
+                        >
+                          <Trash2 size={14} />
+                          <span>Delete Order</span>
+                        </button>
+
+                        <button 
+                          onClick={() => handleTogglePayment(order.id, order.paymentStatus)}
+                          style={{
+                            background: order.paymentStatus === 'Paid' ? 'rgba(239, 68, 68, 0.08)' : 'rgba(16, 185, 129, 0.08)',
+                            border: `1px solid ${order.paymentStatus === 'Paid' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(16, 185, 129, 0.25)'}`,
+                            color: order.paymentStatus === 'Paid' ? 'var(--accent-rose)' : 'var(--accent-emerald)',
+                            padding: '8px 16px',
+                            borderRadius: '8px',
+                            fontSize: '12.5px',
+                            fontWeight: '700',
+                            fontFamily: 'var(--font-title)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            transition: 'all 0.2s ease'
+                          }}
+                        >
+                          <DollarSign size={14} />
+                          <span>Mark as {order.paymentStatus === 'Paid' ? 'Unpaid' : 'Paid'}</span>
+                        </button>
+                      </div>
                     </div>
 
                   </div>

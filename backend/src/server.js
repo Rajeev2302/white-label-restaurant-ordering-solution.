@@ -728,6 +728,59 @@ app.put('/api/orders/:id/payment', async (req, res, next) => {
 });
 
 /**
+ * DELETE /api/orders
+ * Deletes all completed, served, and cancelled orders from history.
+ */
+app.delete('/api/orders', async (_req, res, next) => {
+  try {
+    const db = await getDbConnection();
+    const result = await db.run(
+      "DELETE FROM orders WHERE status IN ('served', 'completed', 'cancelled')"
+    );
+    res.json({
+      success: true,
+      message: `${result.changes} historical orders permanently deleted successfully`
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * DELETE /api/orders/:id
+ * Deletes a single completed, served, or cancelled order from history.
+ */
+app.delete('/api/orders/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const db = await getDbConnection();
+    
+    const order = await db.get('SELECT * FROM orders WHERE id = ?', [id]);
+    if (!order) {
+      const error = new Error('Order not found');
+      error.statusCode = 404;
+      return next(error);
+    }
+
+    const nonDeletableStatuses = ['pending', 'accepted', 'preparing', 'ready'];
+    if (nonDeletableStatuses.includes(order.status)) {
+      const error = new Error('Only completed, served, or cancelled orders can be permanently deleted.');
+      error.statusCode = 400;
+      return next(error);
+    }
+
+    await db.run('DELETE FROM orders WHERE id = ?', [id]);
+    
+    res.json({
+      success: true,
+      message: 'Order deleted successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * POST /api/setup/verify
  * Verifies the setup admin password.
  */
