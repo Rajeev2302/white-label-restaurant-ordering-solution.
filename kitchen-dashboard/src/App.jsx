@@ -10,6 +10,8 @@ import {
   AlertCircle 
 } from 'lucide-react';
 
+const API_BASE_URL = import.meta.env.DEV ? '' : 'https://serveqr-api.onrender.com';
+
 function App() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -27,7 +29,7 @@ function App() {
   // Fetch Settings & Initial Orders
   useEffect(() => {
     // Settings load
-    fetch('/api/settings')
+    fetch(API_BASE_URL + '/api/settings')
       .then(res => res.json())
       .then(resJson => {
         if (resJson.success) {
@@ -55,7 +57,7 @@ function App() {
 
   // Fetch Orders
   const fetchOrders = () => {
-    fetch('/api/orders')
+    fetch(API_BASE_URL + '/api/orders')
       .then(res => {
         if (!res.ok) throw new Error('Failed to load orders from backend');
         return res.json();
@@ -91,7 +93,7 @@ function App() {
     else if (currentStatus === 'ready') nextStatus = 'served';
     else return;
 
-    fetch(`/api/orders/${orderId}/status`, {
+    fetch(`${API_BASE_URL}/api/orders/${orderId}/status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: nextStatus })

@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 
+const API_BASE_URL = import.meta.env.DEV ? '' : 'https://serveqr-api.onrender.com';
+
 function OrderHistoryPage({ settings }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -326,7 +328,7 @@ function OrderHistoryPage({ settings }) {
 
   const fetchOrders = () => {
     setLoading(true);
-    fetch('/api/orders')
+    fetch(API_BASE_URL + '/api/orders')
       .then(res => {
         if (!res.ok) throw new Error('Failed to load orders from backend');
         return res.json();
@@ -355,7 +357,7 @@ function OrderHistoryPage({ settings }) {
   const handleTogglePayment = (orderId, currentPaymentStatus) => {
     const nextPaymentStatus = currentPaymentStatus === 'Paid' ? 'Unpaid' : 'Paid';
 
-    fetch(`/api/orders/${orderId}/payment`, {
+    fetch(`${API_BASE_URL}/api/orders/${orderId}/payment`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ paymentStatus: nextPaymentStatus })

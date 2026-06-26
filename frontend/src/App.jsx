@@ -17,6 +17,8 @@ import {
 import QrGeneratorPage from './QrGeneratorPage';
 
 
+const API_BASE_URL = import.meta.env.DEV ? '' : 'https://serveqr-api.onrender.com';
+
 function App() {
   // State variables
   const [menuItems, setMenuItems] = useState([]);
@@ -101,7 +103,7 @@ function App() {
     if (!activeOrderId) return;
 
     const pollStatus = () => {
-      fetch(`/api/orders/${activeOrderId}`)
+      fetch(`${API_BASE_URL}/api/orders/${activeOrderId}`)
         .then(res => {
           if (!res.ok) throw new Error('Order not found');
           return res.json();
@@ -176,7 +178,7 @@ function App() {
       setTableNumber(sanitizedTable);
       
       // Save table registration on backend
-      fetch('/api/tables', {
+      fetch(API_BASE_URL + '/api/tables', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ table_number: sanitizedTable })
@@ -189,7 +191,7 @@ function App() {
   // Fetch Settings & Menu from API
   useEffect(() => {
     // 1. Fetch settings
-    fetch('/api/settings')
+    fetch(API_BASE_URL + '/api/settings')
       .then(res => res.json())
       .then(resJson => {
         if (resJson.success) {
@@ -199,7 +201,7 @@ function App() {
       .catch(err => console.error('[Settings] Load failed:', err));
 
     // 2. Fetch menu
-    fetch('/api/menu')
+    fetch(API_BASE_URL + '/api/menu')
       .then(res => {
         if (!res.ok) throw new Error('Failed to load restaurant menu');
         return res.json();
@@ -344,7 +346,7 @@ function App() {
       total_amount: cartGrandTotal
     };
 
-    fetch('/api/orders', {
+    fetch(API_BASE_URL + '/api/orders', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -1128,7 +1130,7 @@ function SetupPage({ settings, setSettings, setCurrentPath, onLogout }) {
 
   const handleExportBackup = () => {
     setStatus({ success: false, message: 'Exporting configuration...' });
-    fetch('/api/backup')
+    fetch(API_BASE_URL + '/api/backup')
       .then(res => res.json())
       .then(data => {
         if (data.success) {
@@ -1173,7 +1175,7 @@ function SetupPage({ settings, setSettings, setCurrentPath, onLogout }) {
         }
 
         setStatus({ success: false, message: 'Uploading backup configuration...' });
-        fetch('/api/restore', {
+        fetch(API_BASE_URL + '/api/restore', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ backup: backupData })
@@ -1255,7 +1257,7 @@ function SetupPage({ settings, setSettings, setCurrentPath, onLogout }) {
     setSaving(true);
     setStatus({ success: false, message: 'Saving configurations...' });
 
-    fetch('/api/settings', {
+    fetch(API_BASE_URL + '/api/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1735,7 +1737,7 @@ function SetupLoginPage({ onLoginSuccess, settings, setCurrentPath }) {
     setLoading(true);
     setError('');
 
-    fetch('/api/setup/verify', {
+    fetch(API_BASE_URL + '/api/setup/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password })

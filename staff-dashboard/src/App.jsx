@@ -24,6 +24,8 @@ import {
 import QrGeneratorPage from '../../frontend/src/QrGeneratorPage';
 import OrderHistoryPage from './OrderHistoryPage';
 
+const API_BASE_URL = import.meta.env.DEV ? '' : 'https://serveqr-api.onrender.com';
+
 function App() {
   // Navigation
   const [activeTab, setActiveTab] = useState('orders'); // 'orders', 'menu', 'settings'
@@ -128,7 +130,7 @@ function App() {
     setLoading(true);
     
     // Fetch Settings
-    fetch('/api/settings')
+    fetch(API_BASE_URL + '/api/settings')
       .then(res => res.json())
       .then(resJson => {
         if (resJson.success) {
@@ -149,7 +151,7 @@ function App() {
       .catch(err => console.error('[Settings] Load error:', err));
 
     // Fetch Menu
-    fetch('/api/menu')
+    fetch(API_BASE_URL + '/api/menu')
       .then(res => res.json())
       .then(resJson => {
         if (resJson.success) {
@@ -159,7 +161,7 @@ function App() {
       .catch(err => console.error('[Menu] Load error:', err));
 
     // Fetch Orders
-    fetch('/api/orders')
+    fetch(API_BASE_URL + '/api/orders')
       .then(res => {
         if (!res.ok) throw new Error('Failed to load orders from backend');
         return res.json();
@@ -182,7 +184,7 @@ function App() {
 
   // Poll orders only (faster refresh, keeping settings/menu manual)
   const fetchOrdersOnly = () => {
-    fetch('/api/orders')
+    fetch(API_BASE_URL + '/api/orders')
       .then(res => {
         if (!res.ok) throw new Error('Failed to fetch orders');
         return res.json();
@@ -221,7 +223,7 @@ function App() {
     else if (currentStatus === 'ready') nextStatus = 'served';
     else return;
 
-    fetch(`/api/orders/${orderId}/status`, {
+    fetch(`${API_BASE_URL}/api/orders/${orderId}/status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: nextStatus })
@@ -251,7 +253,7 @@ function App() {
     e.preventDefault();
     setSettingsStatus({ success: false, message: 'Saving...' });
 
-    fetch('/api/settings', {
+    fetch(API_BASE_URL + '/api/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -316,7 +318,7 @@ function App() {
       imageUrl: menuForm.imageUrl || null
     };
 
-    const url = menuFormMode === 'add' ? '/api/menu' : `/api/menu/${editingItemId}`;
+    const url = menuFormMode === 'add' ? API_BASE_URL + '/api/menu' : `${API_BASE_URL}/api/menu/${editingItemId}`;
     const method = menuFormMode === 'add' ? 'POST' : 'PUT';
 
     fetch(url, {
@@ -364,7 +366,7 @@ function App() {
   const handleDeleteMenuItem = (itemId) => {
     if (!confirm('Are you sure you want to delete this menu item from SQLite database?')) return;
 
-    fetch(`/api/menu/${itemId}`, { method: 'DELETE' })
+    fetch(`${API_BASE_URL}/api/menu/${itemId}`, { method: 'DELETE' })
       .then(async res => {
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -388,7 +390,7 @@ function App() {
   const handleToggleAvailability = (item) => {
     const updatedAvailable = !item.isAvailable;
     
-    fetch(`/api/menu/${item.id}`, {
+    fetch(`${API_BASE_URL}/api/menu/${item.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
