@@ -9,8 +9,13 @@ import {
   CheckCircle, 
   UtensilsCrossed, 
   X,
-  Info
+  Info,
+  Receipt,
+  ChefHat,
+  ArrowRight
 } from 'lucide-react';
+import QrGeneratorPage from './QrGeneratorPage';
+
 
 function App() {
   // State variables
@@ -21,12 +26,50 @@ function App() {
   // Restaurant Settings
   const [settings, setSettings] = useState({
     restaurantName: 'Lakshmi Ganesh Restaurant',
+    logoUrl: 'https://res.cloudinary.com/dwatx4zlt/image/upload/v1782051849/Logo_copy_imxucw.jpg',
+    phoneNumber: '',
+    address: '',
+    themeColor: '#d4af37',
+    currencySymbol: '₹',
+    tagline: 'Authentic Indian Flavors',
     gstPercentage: 5.0,
     serviceChargePercentage: 2.5
   });
-  
+
+  // Dynamic styling and metadata effect
+  useEffect(() => {
+    if (settings.restaurantName) {
+      document.title = `${settings.restaurantName} | QR Order & Dine`;
+      const metaDesc = document.querySelector('meta[name="description"]');
+      if (metaDesc) {
+        metaDesc.setAttribute('content', `Welcome to ${settings.restaurantName}. Scan the QR code on your table to view our delicious menu, place your order, and pay instantly.`);
+      }
+    }
+    if (settings.themeColor) {
+      document.documentElement.style.setProperty('--gold-accent', settings.themeColor);
+      const hex = settings.themeColor.replace('#', '');
+      if (hex.length === 6) {
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        document.documentElement.style.setProperty('--gold-accent-rgb', `${r}, ${g}, ${b}`);
+      }
+    }
+  }, [settings.restaurantName, settings.themeColor]);
+
   // Table identifier
   const [tableNumber, setTableNumber] = useState(null);
+
+  // SPA Routing Path
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
   
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -44,10 +87,81 @@ function App() {
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
 
+  const [activeOrderId, setActiveOrderId] = useState(() => {
+    return localStorage.getItem('lgr_latest_order_id') || null;
+  });
+  const [activeOrderStatus, setActiveOrderStatus] = useState('pending');
+
+  // Polling for active order status
+  useEffect(() => {
+    if (!activeOrderId) return;
+
+    const pollStatus = () => {
+      fetch(`/api/orders/${activeOrderId}`)
+        .then(res => {
+          if (!res.ok) throw new Error('Order not found');
+          return res.json();
+        })
+        .then(resJson => {
+          if (resJson.success) {
+            const order = resJson.data;
+            setActiveOrderStatus(order.status);
+            
+            // If the latestOrder details aren't populated (e.g. after refresh), populate them
+            if (!latestOrder) {
+              setLatestOrder({
+                orderId: order.id,
+                tableNumber: order.tableNumber,
+                items: order.items,
+                subtotal: order.totalAmount,
+                gst: 0,
+                grandTotal: order.totalAmount,
+                time: new Date(order.createdAt.replace(' ', 'T') + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              });
+            }
+          }
+        })
+        .catch(err => {
+          console.error('[Polling Error]', err);
+          if (err.message === 'Order not found') {
+            setActiveOrderId(null);
+            localStorage.removeItem('lgr_latest_order_id');
+          }
+        });
+    };
+
+    // Run immediately
+    pollStatus();
+
+    // Setup interval
+    const interval = setInterval(pollStatus, 4000);
+    return () => clearInterval(interval);
+  }, [activeOrderId, latestOrder]);
+
+  // Sync order-status route parameters with active order ID
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const orderIdParam = params.get('id') || params.get('orderId');
+    
+    if (currentPath.startsWith('/order-status')) {
+      if (orderIdParam) {
+        if (orderIdParam !== String(activeOrderId)) {
+          setActiveOrderId(orderIdParam);
+        }
+      } else if (activeOrderId) {
+        window.history.replaceState({}, '', `/order-status?id=${activeOrderId}`);
+      } else {
+        setCurrentPath('/');
+        window.history.replaceState({}, '', '/');
+      }
+    }
+  }, [currentPath, activeOrderId]);
+
   // Sync cart to localStorage
   useEffect(() => {
     localStorage.setItem('lgr_cart', JSON.stringify(cart));
   }, [cart]);
+
 
   // Extract table parameter from URL
   useEffect(() => {
@@ -265,11 +379,17 @@ function App() {
         
         setLatestOrder(orderDetails);
         localStorage.setItem('lgr_latest_order_id', orderId);
+        setActiveOrderId(orderId);
+        setActiveOrderStatus('pending');
         
         // Reset states
         clearCart();
         setIsCartOpen(false);
-        setShowSuccessOverlay(true);
+        setShowSuccessOverlay(false);
+
+        // Redirect to Order Status page
+        setCurrentPath('/order-status');
+        window.history.pushState({}, '', `/order-status?id=${orderId}`);
       }
       setCheckoutLoading(false);
     })
@@ -290,6 +410,41 @@ function App() {
     });
   };
 
+  if (currentPath === '/setup') {
+    return (
+      <SetupPage 
+        settings={settings} 
+        setSettings={setSettings} 
+        setCurrentPath={setCurrentPath} 
+      />
+    );
+  }
+
+  if (currentPath === '/setup/qr') {
+    return (
+      <QrGeneratorPage 
+        settings={settings} 
+        setCurrentPath={setCurrentPath} 
+      />
+    );
+  }
+
+  if (currentPath.startsWith('/order-status')) {
+    return (
+      <OrderStatusPage 
+        settings={settings}
+        setCurrentPath={setCurrentPath}
+        activeOrderId={activeOrderId}
+        setActiveOrderId={setActiveOrderId}
+        activeOrderStatus={activeOrderStatus}
+        setActiveOrderStatus={setActiveOrderStatus}
+        latestOrder={latestOrder}
+        setLatestOrder={setLatestOrder}
+      />
+    );
+  }
+
+
   return (
     <div className="menu-app">
       {/* 1. HEADER BRANDING */}
@@ -297,13 +452,13 @@ function App() {
         <div className="header-top">
           <div className="brand-logo-name">
             <img 
-              src="https://res.cloudinary.com/dwatx4zlt/image/upload/v1782051849/Logo_copy_imxucw.jpg" 
+              src={settings.logoUrl || "https://res.cloudinary.com/dwatx4zlt/image/upload/v1782051849/Logo_copy_imxucw.jpg"} 
               alt={`${settings.restaurantName} Logo`} 
               className="brand-logo"
             />
             <div>
               <h1 className="brand-name">{settings.restaurantName}</h1>
-              <p className="brand-tagline">Authentic Indian Flavors</p>
+              <p className="brand-tagline">{settings.tagline || 'Authentic Flavors'}</p>
             </div>
           </div>
           
@@ -406,15 +561,83 @@ function App() {
               <button className="retry-btn" onClick={() => window.location.reload()}>Retry</button>
             </div>
           ) : filteredMenuItems.length === 0 ? (
-            <div className="no-items-box">
-              <UtensilsCrossed size={32} className="no-items-icon" />
-              <p>No dishes found.</p>
+            <div className="no-items-box" style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '60px 20px',
+              textAlign: 'center',
+              background: 'rgba(255, 255, 255, 0.01)',
+              border: '1.5px dashed rgba(var(--gold-accent-rgb, 212, 175, 55), 0.15)',
+              borderRadius: 'var(--radius-lg)',
+              marginTop: '10px'
+            }}>
+              {/* Premium illustration container */}
+              <div className="empty-state-illustration" style={{
+                position: 'relative',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '100px',
+                height: '100px',
+                margin: '0 auto 16px auto',
+              }}>
+                <div style={{
+                  position: 'absolute',
+                  width: '70px',
+                  height: '70px',
+                  borderRadius: '50%',
+                  background: 'radial-gradient(circle, rgba(var(--gold-accent-rgb, 212, 175, 55), 0.12) 0%, transparent 70%)',
+                  filter: 'blur(6px)',
+                }}></div>
+                <div style={{
+                  position: 'relative',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '60px',
+                  height: '60px',
+                  borderRadius: '20px',
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  border: '1px solid rgba(var(--gold-accent-rgb, 212, 175, 55), 0.2)',
+                  boxShadow: 'inset 0 4px 10px rgba(0,0,0,0.15)',
+                }}>
+                  {searchQuery || vegFilter !== 'all' ? (
+                    <Search size={26} style={{ color: 'var(--gold-accent)' }} />
+                  ) : (
+                    <UtensilsCrossed size={26} style={{ color: 'var(--gold-accent)' }} />
+                  )}
+                </div>
+              </div>
+              
+              <h3 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-main)', margin: '0 0 6px 0' }}>
+                {searchQuery || vegFilter !== 'all' ? 'No matching dishes found' : 'No menu items available'}
+              </h3>
+              
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '280px', margin: '0 0 16px 0', lineHeight: '1.4' }}>
+                {searchQuery || vegFilter !== 'all' 
+                  ? "We couldn't find anything matching your search. Try resetting filters or searching for something else." 
+                  : "Our chefs are updating the digital kitchen menu. Please check back in a moment or ask your server."}
+              </p>
+
               {(searchQuery || vegFilter !== 'all') && (
                 <button 
                   className="reset-filters-btn"
                   onClick={() => {
                     setSearchQuery('');
                     setVegFilter('all');
+                  }}
+                  style={{
+                    background: 'rgba(var(--gold-accent-rgb, 212, 175, 55), 0.08)',
+                    border: '1px solid rgba(var(--gold-accent-rgb, 212, 175, 55), 0.25)',
+                    color: 'var(--gold-accent)',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
                   }}
                 >
                   Reset Filters
@@ -437,7 +660,7 @@ function App() {
                       </div>
                       
                       <h3 className="dish-name">{item.name}</h3>
-                      <p className="dish-price">₹{item.price}</p>
+                      <p className="dish-price">{settings.currencySymbol || '₹'}{item.price}</p>
                     </div>
 
                     <div className="menu-card-image-action">
@@ -510,7 +733,7 @@ function App() {
               <ShoppingCart size={20} />
               <span className="bar-count">{cartCount} {cartCount === 1 ? 'item' : 'items'}</span>
             </div>
-            <span className="bar-total">Grand Total: ₹{cartGrandTotal}</span>
+            <span className="bar-total">Grand Total: {settings.currencySymbol || '₹'}{cartGrandTotal}</span>
           </div>
           <button className="view-cart-btn">View Cart</button>
         </div>
@@ -531,11 +754,73 @@ function App() {
 
           <div className="drawer-content">
             {cartItemsArray.length === 0 ? (
-              <div className="empty-cart-drawer">
-                <UtensilsCrossed size={48} className="empty-icon" />
-                <h3>Your cart is empty</h3>
-                <p>Browse our menu and add items to place your table order.</p>
-                <button className="browse-menu-btn" onClick={() => setIsCartOpen(false)}>
+              <div className="empty-cart-drawer" style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '70%',
+                padding: '40px 20px',
+                textAlign: 'center'
+              }}>
+                {/* Premium illustration container */}
+                <div className="empty-state-illustration" style={{
+                  position: 'relative',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '110px',
+                  height: '110px',
+                  margin: '0 auto 20px auto',
+                }}>
+                  <div style={{
+                    position: 'absolute',
+                    width: '80px',
+                    height: '80px',
+                    borderRadius: '50%',
+                    background: 'radial-gradient(circle, rgba(var(--gold-accent-rgb, 212, 175, 55), 0.12) 0%, transparent 70%)',
+                    filter: 'blur(8px)',
+                  }}></div>
+                  <div style={{
+                    position: 'relative',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '64px',
+                    height: '64px',
+                    borderRadius: '22px',
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    border: '1px solid rgba(var(--gold-accent-rgb, 212, 175, 55), 0.2)',
+                    boxShadow: 'inset 0 4px 10px rgba(0,0,0,0.15)',
+                  }}>
+                    <ShoppingCart size={28} style={{ color: 'var(--gold-accent)' }} />
+                  </div>
+                </div>
+                
+                <h3 style={{ fontSize: '17px', fontWeight: '600', color: 'var(--text-main)', margin: '0 0 8px 0' }}>
+                  Your cart is empty
+                </h3>
+                
+                <p style={{ fontSize: '13.5px', color: 'var(--text-muted)', maxWidth: '280px', margin: '0 0 24px 0', lineHeight: '1.4' }}>
+                  Browse our menu and add items to place your table order.
+                </p>
+
+                <button 
+                  className="browse-menu-btn" 
+                  onClick={() => setIsCartOpen(false)}
+                  style={{
+                    background: 'var(--gold-accent)',
+                    border: 'none',
+                    color: '#000',
+                    padding: '12px 28px',
+                    borderRadius: 'var(--radius-md)',
+                    fontSize: '14px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(var(--gold-accent-rgb, 212, 175, 55), 0.25)',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
                   Browse Menu
                 </button>
               </div>
@@ -550,7 +835,7 @@ function App() {
                         </span>
                         <span className="cart-item-name">{item.name}</span>
                       </div>
-                      <span className="cart-item-subtotal">₹{item.price * item.quantity}</span>
+                      <span className="cart-item-subtotal">{settings.currencySymbol || '₹'}{item.price * item.quantity}</span>
                     </div>
 
                     <div className="cart-item-controls">
@@ -583,19 +868,19 @@ function App() {
               <div className="cart-summary-calculations">
                 <div className="summary-calc-row">
                   <span>Subtotal</span>
-                  <span>₹{cartSubtotal}</span>
+                  <span>{settings.currencySymbol || '₹'}{cartSubtotal}</span>
                 </div>
                 <div className="summary-calc-row">
                   <span>GST ({settings.gstPercentage}%)</span>
-                  <span>₹{gstAmount}</span>
+                  <span>{settings.currencySymbol || '₹'}{gstAmount}</span>
                 </div>
                 <div className="summary-calc-row">
                   <span>Service Charge ({settings.serviceChargePercentage}%)</span>
-                  <span>₹{serviceChargeAmount}</span>
+                  <span>{settings.currencySymbol || '₹'}{serviceChargeAmount}</span>
                 </div>
                 <div className="total-summary-row mt-1">
                   <span>Grand Total</span>
-                  <span className="grand-total-val">₹{cartGrandTotal}</span>
+                  <span className="grand-total-val">{settings.currencySymbol || '₹'}{cartGrandTotal}</span>
                 </div>
               </div>
               
@@ -634,12 +919,67 @@ function App() {
             </div>
             
             <h2 className="success-title">Order Placed Successfully</h2>
-            <p className="success-desc">Send to the kitchen for preparation.</p>
+            <p className="success-desc">
+              {activeOrderStatus === 'pending' && 'Awaiting acceptance from the kitchen staff...'}
+              {activeOrderStatus === 'accepted' && 'Your order has been accepted by the kitchen!'}
+              {activeOrderStatus === 'preparing' && 'Chef is preparing your delicious meal.'}
+              {activeOrderStatus === 'ready' && 'Your order is ready!'}
+              {activeOrderStatus === 'served' && 'Your order has been served. Enjoy your meal!'}
+            </p>
+
+            {/* Visual Progress Stepper */}
+            <div className="status-progress-container">
+              <div className="status-progress-line-bg">
+                <div 
+                  className="status-progress-line-fill" 
+                  style={{ 
+                    width: `${
+                      activeOrderStatus === 'pending' ? 0 :
+                      activeOrderStatus === 'accepted' ? 25 :
+                      activeOrderStatus === 'preparing' ? 50 :
+                      activeOrderStatus === 'ready' ? 75 :
+                      activeOrderStatus === 'served' || activeOrderStatus === 'completed' ? 100 : 0
+                    }%` 
+                  }}
+                ></div>
+              </div>
+              <div className="status-steps-wrapper">
+                {[
+                  { key: 'pending', label: 'New' },
+                  { key: 'accepted', label: 'Accepted' },
+                  { key: 'preparing', label: 'Preparing' },
+                  { key: 'ready', label: 'Ready' },
+                  { key: 'served', label: 'Served' }
+                ].map((step, idx) => {
+                  const currentIdx = 
+                    activeOrderStatus === 'pending' ? 0 :
+                    activeOrderStatus === 'accepted' ? 1 :
+                    activeOrderStatus === 'preparing' ? 2 :
+                    activeOrderStatus === 'ready' ? 3 :
+                    activeOrderStatus === 'served' || activeOrderStatus === 'completed' ? 4 : 0;
+                  const isCompleted = idx < currentIdx;
+                  const isActive = idx === currentIdx;
+                  return (
+                    <div 
+                      key={step.key} 
+                      className={`step-node ${isCompleted ? 'completed' : ''} ${isActive ? 'active' : ''}`}
+                    >
+                      <div className="step-circle">
+                        {isCompleted ? '✓' : idx + 1}
+                      </div>
+                      <span className="step-label">{step.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
             
             {/* The Order Receipt */}
             <div className="receipt-paper">
               <div className="receipt-header">
                 <h3 className="receipt-restaurant">{latestOrder.restaurantName || settings.restaurantName}</h3>
+                {settings.address && <p style={{ fontSize: '10px', textAlign: 'center', margin: '2px 0 0 0', opacity: 0.8, fontFamily: 'monospace' }}>{settings.address}</p>}
+                {settings.phoneNumber && <p style={{ fontSize: '10px', textAlign: 'center', margin: '2px 0 0 0', opacity: 0.8, fontFamily: 'monospace' }}>Tel: {settings.phoneNumber}</p>}
                 <span className="receipt-divider-dotted"></span>
                 <div className="receipt-meta-row">
                   <span>Order ID: <strong>#000{latestOrder.orderId}</strong></span>
@@ -656,7 +996,7 @@ function App() {
                 {latestOrder.items.map((item, idx) => (
                   <div key={idx} className="receipt-item-row">
                     <span className="receipt-item-qty-name">{item.quantity}x {item.name}</span>
-                    <span className="receipt-item-price">₹{item.price * item.quantity}</span>
+                    <span className="receipt-item-price">{settings.currencySymbol || '₹'}{item.price * item.quantity}</span>
                   </div>
                 ))}
               </div>
@@ -666,24 +1006,24 @@ function App() {
               <div className="receipt-totals">
                 <div className="receipt-total-row">
                   <span>Subtotal</span>
-                  <span>₹{latestOrder.subtotal}</span>
+                  <span>{settings.currencySymbol || '₹'}{latestOrder.subtotal}</span>
                 </div>
                 <div className="receipt-total-row">
                   <span>GST ({settings.gstPercentage}%)</span>
-                  <span>₹{latestOrder.gst}</span>
+                  <span>{settings.currencySymbol || '₹'}{latestOrder.gst}</span>
                 </div>
                 <div className="receipt-total-row">
                   <span>Service Charge ({settings.serviceChargePercentage}%)</span>
-                  <span>₹{latestOrder.serviceCharge}</span>
+                  <span>{settings.currencySymbol || '₹'}{latestOrder.serviceCharge}</span>
                 </div>
                 <span className="receipt-divider-dotted"></span>
                 <div className="receipt-grand-total-row">
                   <span>Grand Total</span>
-                  <span>₹{latestOrder.grandTotal}</span>
+                  <span>{settings.currencySymbol || '₹'}{latestOrder.grandTotal}</span>
                 </div>
               </div>
             </div>
-
+ 
             <button 
               className="dismiss-success-btn"
               onClick={() => setShowSuccessOverlay(false)}
@@ -693,6 +1033,653 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* 8. FLOATING ACTIVE ORDER TRACKER */}
+      {!showSuccessOverlay && activeOrderId && !['served', 'completed', 'cancelled'].includes(activeOrderStatus) && (
+        <div 
+          className={`floating-order-tracker ${cartCount > 0 && !isCartOpen ? 'has-cart-bar' : ''}`} 
+          onClick={() => {
+            setCurrentPath('/order-status');
+            window.history.pushState({}, '', `/order-status?id=${activeOrderId}`);
+          }}
+        >
+          <div className="tracker-glow"></div>
+          <div className="tracker-content">
+            <span className="tracker-icon-pulse">
+              <ChefHat size={18} className="spin-slow" />
+            </span>
+            <div className="tracker-text-details">
+              <span className="tracker-title">Tracking Order #000{activeOrderId}</span>
+              <span className="tracker-status">
+                {activeOrderStatus === 'pending' && 'New (Awaiting acceptance)'}
+                {activeOrderStatus === 'accepted' && 'Accepted (Preparing soon)'}
+                {activeOrderStatus === 'preparing' && 'Preparing in the kitchen'}
+                {activeOrderStatus === 'ready' && 'Ready for pickup/serving!'}
+              </span>
+            </div>
+            <button className="tracker-action-btn">
+              <span>View status</span>
+              <ArrowRight size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+function SetupPage({ settings, setSettings, setCurrentPath }) {
+  const [form, setForm] = useState({
+    restaurantName: settings.restaurantName || '',
+    logoUrl: settings.logoUrl || '',
+    tagline: settings.tagline || '',
+    phoneNumber: settings.phoneNumber || '',
+    address: settings.address || '',
+    themeColor: settings.themeColor || '#d4af37',
+    currencySymbol: settings.currencySymbol || '₹',
+    gstPercentage: String(settings.gstPercentage || '5.0')
+  });
+
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState({ success: false, message: '' });
+
+  // Update live preview style on themeColor change
+  useEffect(() => {
+    if (form.themeColor) {
+      document.documentElement.style.setProperty('--gold-accent', form.themeColor);
+      const hex = form.themeColor.replace('#', '');
+      if (hex.length === 6) {
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        document.documentElement.style.setProperty('--gold-accent-rgb', `${r}, ${g}, ${b}`);
+      }
+    }
+  }, [form.themeColor]);
+
+  const handleExportBackup = () => {
+    setStatus({ success: false, message: 'Exporting configuration...' });
+    fetch('/api/backup')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          // Convert data to JSON blob and download it
+          const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
+            JSON.stringify(data.backup, null, 2)
+          )}`;
+          const downloadAnchor = document.createElement('a');
+          downloadAnchor.setAttribute('href', jsonString);
+          const timestamp = new Date().toISOString().slice(0, 10);
+          downloadAnchor.setAttribute('download', `restaurant_backup_${timestamp}.json`);
+          document.body.appendChild(downloadAnchor);
+          downloadAnchor.click();
+          downloadAnchor.remove();
+          setStatus({ success: true, message: 'Configuration exported successfully!' });
+        } else {
+          setStatus({ success: false, message: 'Export failed: ' + (data.message || 'unknown error') });
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        setStatus({ success: false, message: 'Error exporting backup. See console.' });
+      });
+  };
+
+  const handleImportBackup = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!confirm('WARNING: Restoring a configuration will replace all existing settings, menu items, and registered tables. Are you sure you want to proceed?')) {
+      e.target.value = null; // Clear input
+      return;
+    }
+
+    setStatus({ success: false, message: 'Reading backup file...' });
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const backupData = JSON.parse(event.target.result);
+        if (!backupData.settings || !backupData.menuItems) {
+          throw new Error('JSON is missing settings or menuItems tables');
+        }
+
+        setStatus({ success: false, message: 'Uploading backup configuration...' });
+        fetch('/api/restore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ backup: backupData })
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            setStatus({ success: true, message: 'Configuration restored successfully!' });
+            // Extract settings from restored configuration and refresh state
+            const config = {};
+            if (Array.isArray(backupData.settings)) {
+              backupData.settings.forEach(s => {
+                const keyMap = {
+                  restaurant_name: 'restaurantName',
+                  logo_url: 'logoUrl',
+                  phone_number: 'phoneNumber',
+                  address: 'address',
+                  theme_color: 'themeColor',
+                  currency_symbol: 'currencySymbol',
+                  tagline: 'tagline',
+                  gst_percentage: 'gstPercentage',
+                  service_charge_percentage: 'serviceChargePercentage'
+                };
+                const mappedKey = keyMap[s.key] || s.key;
+                config[mappedKey] = s.value;
+              });
+            }
+            if (config.gstPercentage !== undefined) config.gstPercentage = parseFloat(config.gstPercentage);
+            if (config.serviceChargePercentage !== undefined) config.serviceChargePercentage = parseFloat(config.serviceChargePercentage);
+
+            const merged = { ...settings, ...config };
+            setSettings(merged);
+            setForm({
+              restaurantName: merged.restaurantName || '',
+              logoUrl: merged.logoUrl || '',
+              tagline: merged.tagline || '',
+              phoneNumber: merged.phoneNumber || '',
+              address: merged.address || '',
+              themeColor: merged.themeColor || '#d4af37',
+              currencySymbol: merged.currencySymbol || '₹',
+              gstPercentage: String(merged.gstPercentage || '5.0')
+            });
+          } else {
+            setStatus({ success: false, message: `Restore failed: ${data.message}` });
+          }
+          e.target.value = null; // Clear input
+        })
+        .catch(err => {
+          console.error(err);
+          setStatus({ success: false, message: 'Network error restoring settings.' });
+          e.target.value = null;
+        });
+
+      } catch (err) {
+        setStatus({ success: false, message: 'Invalid JSON file: ' + err.message });
+        e.target.value = null;
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleLogoUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setForm(prev => ({ ...prev, logoUrl: reader.result }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSave = (e) => {
+    e.preventDefault();
+    if (!form.restaurantName.trim()) {
+      alert('Restaurant Name is required');
+      return;
+    }
+    setSaving(true);
+    setStatus({ success: false, message: 'Saving configurations...' });
+
+    fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        restaurantName: form.restaurantName,
+        logoUrl: form.logoUrl,
+        tagline: form.tagline,
+        phoneNumber: form.phoneNumber,
+        address: form.address,
+        themeColor: form.themeColor,
+        currencySymbol: form.currencySymbol,
+        gstPercentage: parseFloat(form.gstPercentage || '0'),
+        serviceChargePercentage: settings.serviceChargePercentage // preserve existing
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        setStatus({ success: true, message: 'Configuration saved successfully!' });
+        setSettings(prev => ({
+          ...prev,
+          restaurantName: form.restaurantName,
+          logoUrl: form.logoUrl,
+          tagline: form.tagline,
+          phoneNumber: form.phoneNumber,
+          address: form.address,
+          themeColor: form.themeColor,
+          currencySymbol: form.currencySymbol,
+          gstPercentage: parseFloat(form.gstPercentage || '0')
+        }));
+      } else {
+        setStatus({ success: false, message: `Failed to save: ${data.message}` });
+      }
+      setSaving(false);
+    })
+    .catch(err => {
+      console.error(err);
+      setStatus({ success: false, message: 'Error saving settings. Please try again.' });
+      setSaving(false);
+    });
+  };
+
+  const handleReset = () => {
+    if (confirm('Are you sure you want to reset setup to defaults?')) {
+      const defaults = {
+        restaurantName: 'Lakshmi Ganesh Restaurant',
+        logoUrl: 'https://res.cloudinary.com/dwatx4zlt/image/upload/v1782051849/Logo_copy_imxucw.jpg',
+        tagline: 'Authentic Indian Flavors',
+        phoneNumber: '+91 98765 43210',
+        address: 'H.No. 12-34, Main Road, Hyderabad, 500001',
+        themeColor: '#d4af37',
+        currencySymbol: '₹',
+        gstPercentage: '5.0'
+      };
+      setForm(defaults);
+      setStatus({ success: false, message: '' });
+    }
+  };
+
+  return (
+    <div className="setup-container">
+      <div className="setup-card">
+        <div className="setup-header">
+          <UtensilsCrossed className="setup-logo-icon" size={28} />
+          <div>
+            <h2>Restaurant Installer Setup</h2>
+            <p>Configure brand settings before deploying the system</p>
+          </div>
+        </div>
+
+        <div className="setup-tabs">
+          <button 
+            type="button" 
+            className="setup-tab active"
+            disabled
+          >
+            Settings Configurator
+          </button>
+          <button 
+            type="button" 
+            className="setup-tab"
+            onClick={() => {
+              setCurrentPath('/setup/qr');
+              window.history.pushState({}, '', '/setup/qr');
+            }}
+          >
+            QR Code Generator
+          </button>
+        </div>
+
+        {/* Dynamic Live Preview */}
+        <div className="preview-section">
+          <h3>Customer Header Preview</h3>
+          <header className="app-header preview-header-box">
+            <div className="header-top">
+              <div className="brand-logo-name">
+                <img 
+                  src={form.logoUrl || "https://res.cloudinary.com/dwatx4zlt/image/upload/v1782051849/Logo_copy_imxucw.jpg"} 
+                  alt="Restaurant Logo" 
+                  className="brand-logo"
+                />
+                <div>
+                  <h1 className="brand-name">{form.restaurantName || 'Restaurant Name'}</h1>
+                  <p className="brand-tagline">{form.tagline || 'Delicious Tagline'}</p>
+                </div>
+              </div>
+              <button className="cart-toggle-btn" disabled>
+                <ShoppingCart size={22} />
+              </button>
+            </div>
+          </header>
+        </div>
+
+        <form onSubmit={handleSave} className="setup-form">
+          <div className="form-grid">
+            <div className="form-group full-width">
+              <label>Restaurant Display Name *</label>
+              <input 
+                type="text" 
+                value={form.restaurantName}
+                onChange={e => setForm(prev => ({ ...prev, restaurantName: e.target.value }))}
+                required
+                placeholder="e.g. Lakshmi Ganesh Restaurant"
+              />
+            </div>
+
+            <div className="form-group full-width">
+              <label>Logo Upload (Image File)</label>
+              <div className="file-upload-box">
+                <input 
+                  type="file" 
+                  accept="image/*"
+                  onChange={handleLogoUpload}
+                  id="logo-file-input"
+                />
+                {form.logoUrl && (
+                  <button 
+                    type="button" 
+                    className="clear-logo-btn" 
+                    onClick={() => setForm(prev => ({ ...prev, logoUrl: '' }))}
+                  >
+                    Clear Image
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>Tagline</label>
+              <input 
+                type="text" 
+                value={form.tagline}
+                onChange={e => setForm(prev => ({ ...prev, tagline: e.target.value }))}
+                placeholder="e.g. Authentic Indian Flavors"
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Phone Number</label>
+              <input 
+                type="text" 
+                value={form.phoneNumber}
+                onChange={e => setForm(prev => ({ ...prev, phoneNumber: e.target.value }))}
+                placeholder="e.g. +91 98765 43210"
+              />
+            </div>
+
+            <div className="form-group full-width">
+              <label>Address</label>
+              <input 
+                type="text" 
+                value={form.address}
+                onChange={e => setForm(prev => ({ ...prev, address: e.target.value }))}
+                placeholder="e.g. Main Street, Road No. 1, Hyderabad"
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Theme Color (Hex Accent)</label>
+              <div className="color-picker-group">
+                <input 
+                  type="color" 
+                  value={form.themeColor.startsWith('#') && form.themeColor.length === 7 ? form.themeColor : '#d4af37'}
+                  onChange={e => setForm(prev => ({ ...prev, themeColor: e.target.value }))}
+                />
+                <input 
+                  type="text" 
+                  value={form.themeColor}
+                  onChange={e => setForm(prev => ({ ...prev, themeColor: e.target.value }))}
+                  placeholder="#d4af37"
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>Currency Symbol</label>
+              <input 
+                type="text" 
+                value={form.currencySymbol}
+                onChange={e => setForm(prev => ({ ...prev, currencySymbol: e.target.value }))}
+                placeholder="e.g. ₹ or $"
+                maxLength={5}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>GST Percentage (%)</label>
+              <input 
+                type="number" 
+                step="0.01"
+                value={form.gstPercentage}
+                onChange={e => setForm(prev => ({ ...prev, gstPercentage: e.target.value }))}
+                placeholder="e.g. 5.0"
+              />
+            </div>
+          </div>
+
+          {status.message && (
+            <div className={`status-banner ${status.success ? 'success' : 'error'}`}>
+              {status.success ? <CheckCircle size={16} /> : <AlertTriangle className="error" size={16} />}
+              <span>{status.message}</span>
+            </div>
+          )}
+
+          <div className="setup-actions">
+            <button 
+              type="button" 
+              onClick={handleReset} 
+              className="reset-setup-btn"
+              disabled={saving}
+            >
+              Reset Configuration
+            </button>
+            <button 
+              type="submit" 
+              className="save-setup-btn"
+              disabled={saving}
+            >
+              {saving ? 'Saving...' : 'Save Configuration'}
+            </button>
+          </div>
+        </form>
+
+        <div className="backup-restore-section">
+          <h3>Backup & Restore</h3>
+          <p className="section-desc">Export current brand settings, menu items, and tables to a JSON file, or restore them from a backup.</p>
+          <div className="backup-actions">
+            <button 
+              type="button" 
+              onClick={handleExportBackup} 
+              className="export-backup-btn"
+              title="Download entire configuration as a JSON file"
+            >
+              Export Configuration
+            </button>
+            <div className="import-file-wrapper">
+              <label htmlFor="import-backup-file" className="import-backup-label">
+                Import Configuration
+              </label>
+              <input 
+                type="file" 
+                id="import-backup-file" 
+                accept=".json" 
+                onChange={handleImportBackup} 
+                className="import-backup-input"
+              />
+            </div>
+          </div>
+        </div>
+
+        <button 
+          onClick={() => {
+            setCurrentPath('/');
+            window.history.pushState({}, '', '/');
+          }} 
+          className="back-to-menu-link-btn"
+        >
+          Go to Customer Menu Page
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function OrderStatusPage({ settings, setCurrentPath, activeOrderId, activeOrderStatus, latestOrder }) {
+  const getStatusStepIndex = (status) => {
+    const mapping = {
+      pending: 0,
+      accepted: 1,
+      preparing: 2,
+      ready: 3,
+      served: 4,
+      completed: 4
+    };
+    return mapping[status] !== undefined ? mapping[status] : 0;
+  };
+
+  const currentStep = getStatusStepIndex(activeOrderStatus);
+
+  // Status mapping details
+  const statusDetails = {
+    pending: { label: 'New', color: 'pending', icon: '🟡', message: 'Your order has been received.' },
+    accepted: { label: 'Accepted', color: 'accepted', icon: '🔵', message: 'Kitchen has started preparing your food.' },
+    preparing: { label: 'Preparing', color: 'preparing', icon: '🟠', message: 'Kitchen has started preparing your food.' },
+    ready: { label: 'Ready', color: 'ready', icon: '🟢', message: 'Your food is ready.' },
+    served: { label: 'Served', color: 'served', icon: '✅', message: 'Order completed. Thank you!' },
+    completed: { label: 'Completed', color: 'served', icon: '✅', message: 'Order completed. Thank you!' },
+    cancelled: { label: 'Cancelled', color: 'cancelled', icon: '❌', message: 'Your order was cancelled.' }
+  };
+
+  const activeStatusDetail = statusDetails[activeOrderStatus] || statusDetails.pending;
+
+  return (
+    <div className="order-status-container">
+      <div className="order-status-card">
+        {/* Header Branding */}
+        <header className="status-header">
+          <div className="status-brand">
+            <img 
+              src={settings.logoUrl || "https://res.cloudinary.com/dwatx4zlt/image/upload/v1782051849/Logo_copy_imxucw.jpg"} 
+              alt="Logo" 
+              className="status-logo"
+            />
+            <div>
+              <h2 className="status-restaurant-name">{settings.restaurantName}</h2>
+              <p className="status-restaurant-tagline">{settings.tagline || 'QR Order & Dine'}</p>
+            </div>
+          </div>
+          <button 
+            className="status-back-btn"
+            onClick={() => {
+              setCurrentPath('/');
+              window.history.pushState({}, '', '/');
+            }}
+          >
+            Back to Menu
+          </button>
+        </header>
+
+        {/* Live Tracking Card */}
+        <div className="live-tracking-panel">
+          <div className={`status-banner-large status-${activeStatusDetail.color}`}>
+            <span className="status-emoji-icon">{activeStatusDetail.icon}</span>
+            <div className="status-headline-group">
+              <span className="status-sub">CURRENT STATUS</span>
+              <h3 className="status-main-label">{activeStatusDetail.label.toUpperCase()}</h3>
+            </div>
+          </div>
+
+          <div className="waiting-message-box">
+            <p className="waiting-message-text">"{activeStatusDetail.message}"</p>
+          </div>
+
+          {/* Timeline Stepper */}
+          <div className="timeline-progress-wrapper">
+            <div className="timeline-line-bg">
+              <div 
+                className="timeline-line-fill" 
+                style={{ width: `${(currentStep / 4) * 100}%` }}
+              ></div>
+            </div>
+            <div className="timeline-steps">
+              {[
+                { key: 'pending', label: 'New', icon: '🟡' },
+                { key: 'accepted', label: 'Accepted', icon: '🔵' },
+                { key: 'preparing', label: 'Preparing', icon: '🟠' },
+                { key: 'ready', label: 'Ready', icon: '🟢' },
+                { key: 'served', label: 'Served', icon: '✅' }
+              ].map((step, idx) => {
+                const isCompleted = idx < currentStep;
+                const isActive = idx === currentStep;
+                return (
+                  <div 
+                    key={step.key} 
+                    className={`timeline-step-node ${isCompleted ? 'completed' : ''} ${isActive ? 'active' : ''}`}
+                  >
+                    <div className="timeline-step-circle">
+                      {isCompleted ? '✓' : idx + 1}
+                    </div>
+                    <span className="timeline-step-label">{step.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Order Details Paper */}
+        {latestOrder && (
+          <div className="receipt-paper status-receipt">
+            <div className="receipt-header">
+              <span className="receipt-title">ORDER RECEIPT</span>
+              <span className="receipt-divider-dotted"></span>
+              <div className="receipt-meta-row">
+                <span>Order ID: <strong>#000{latestOrder.orderId}</strong></span>
+                <span>Table: <strong>Table {latestOrder.tableNumber}</strong></span>
+              </div>
+              <div className="receipt-meta-row">
+                <span>Time Placed: {latestOrder.time}</span>
+              </div>
+            </div>
+            
+            <span className="receipt-divider-solid"></span>
+            
+            <div className="receipt-items">
+              {latestOrder.items.map((item, idx) => (
+                <div key={idx} className="receipt-item-row">
+                  <span className="receipt-item-qty-name">{item.quantity}x {item.name}</span>
+                  <span className="receipt-item-price">{settings.currencySymbol || '₹'}{item.price * item.quantity}</span>
+                </div>
+              ))}
+            </div>
+            
+            <span className="receipt-divider-solid"></span>
+            
+            <div className="receipt-totals">
+              {latestOrder.subtotal !== undefined && latestOrder.grandTotal !== latestOrder.subtotal && (
+                <>
+                  <div className="receipt-total-row">
+                    <span>Subtotal</span>
+                    <span>{settings.currencySymbol || '₹'}{latestOrder.subtotal}</span>
+                  </div>
+                  <div className="receipt-total-row">
+                    <span>GST ({settings.gstPercentage}%)</span>
+                    <span>{settings.currencySymbol || '₹'}{latestOrder.gst}</span>
+                  </div>
+                  <div className="receipt-total-row">
+                    <span>Service Charge ({settings.serviceChargePercentage}%)</span>
+                    <span>{settings.currencySymbol || '₹'}{latestOrder.serviceCharge}</span>
+                  </div>
+                  <span className="receipt-divider-dotted"></span>
+                </>
+              )}
+              <div className="receipt-grand-total-row">
+                <span>Total Amount Paid</span>
+                <span>{settings.currencySymbol || '₹'}{latestOrder.grandTotal}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="order-status-actions">
+          <button 
+            className="order-more-btn"
+            onClick={() => {
+              setCurrentPath('/');
+              window.history.pushState({}, '', '/');
+            }}
+          >
+            Order More Food
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

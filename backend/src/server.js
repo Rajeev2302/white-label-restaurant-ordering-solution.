@@ -40,7 +40,7 @@ app.use(express.urlencoded({ extended: true }));
  * GET /api/settings
  * Retrieves all configuration settings.
  */
-app.get('/api/settings', async (req, res, next) => {
+app.get('/api/settings', async (_req, res, next) => {
   try {
     const db = await getDbConnection();
     const rows = await db.all('SELECT * FROM settings');
@@ -55,8 +55,14 @@ app.get('/api/settings', async (req, res, next) => {
       success: true,
       data: {
         restaurantName: config.restaurant_name || 'Lakshmi Ganesh Restaurant',
-        gstPercentage: parseFloat(config.gst_percentage || '5.0'),
-        serviceChargePercentage: parseFloat(config.service_charge_percentage || '2.5')
+        logoUrl: config.logo_url || 'https://res.cloudinary.com/dwatx4zlt/image/upload/v1782051849/Logo_copy_imxucw.jpg',
+        phoneNumber: config.phone_number || '',
+        address: config.address || '',
+        themeColor: config.theme_color || '#d4af37',
+        currencySymbol: config.currency_symbol || '₹',
+        tagline: config.tagline || '',
+        gstPercentage: config.gst_percentage !== undefined ? parseFloat(config.gst_percentage) : 0.0,
+        serviceChargePercentage: config.service_charge_percentage !== undefined ? parseFloat(config.service_charge_percentage) : 0.0
       }
     });
   } catch (error) {
@@ -70,7 +76,17 @@ app.get('/api/settings', async (req, res, next) => {
  */
 app.put('/api/settings', async (req, res, next) => {
   try {
-    const { restaurantName, gstPercentage, serviceChargePercentage } = req.body;
+    const { 
+      restaurantName, 
+      logoUrl, 
+      phoneNumber, 
+      address, 
+      themeColor, 
+      currencySymbol, 
+      tagline, 
+      gstPercentage, 
+      serviceChargePercentage 
+    } = req.body;
 
     if (!restaurantName || restaurantName.trim() === '') {
       const error = new Error('Restaurant Name is required');
@@ -78,13 +94,15 @@ app.put('/api/settings', async (req, res, next) => {
       return next(error);
     }
 
-    if (gstPercentage === undefined || isNaN(gstPercentage) || gstPercentage < 0) {
+    const cleanGst = gstPercentage === undefined || gstPercentage === '' ? 0.0 : parseFloat(gstPercentage);
+    if (isNaN(cleanGst) || cleanGst < 0) {
       const error = new Error('GST percentage must be a valid positive number');
       error.statusCode = 400;
       return next(error);
     }
 
-    if (serviceChargePercentage === undefined || isNaN(serviceChargePercentage) || serviceChargePercentage < 0) {
+    const cleanServiceCharge = serviceChargePercentage === undefined || serviceChargePercentage === '' ? 0.0 : parseFloat(serviceChargePercentage);
+    if (isNaN(cleanServiceCharge) || cleanServiceCharge < 0) {
       const error = new Error('Service Charge percentage must be a valid positive number');
       error.statusCode = 400;
       return next(error);
@@ -95,8 +113,14 @@ app.put('/api/settings', async (req, res, next) => {
     await db.run('BEGIN TRANSACTION');
     try {
       await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('restaurant_name', ?)", [restaurantName.trim()]);
-      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('gst_percentage', ?)", [String(gstPercentage)]);
-      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('service_charge_percentage', ?)", [String(serviceChargePercentage)]);
+      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('logo_url', ?)", [(logoUrl || '').trim()]);
+      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('phone_number', ?)", [(phoneNumber || '').trim()]);
+      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('address', ?)", [(address || '').trim()]);
+      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('theme_color', ?)", [(themeColor || '#d4af37').trim()]);
+      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('currency_symbol', ?)", [(currencySymbol || '₹').trim()]);
+      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('tagline', ?)", [(tagline || '').trim()]);
+      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('gst_percentage', ?)", [String(cleanGst)]);
+      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('service_charge_percentage', ?)", [String(cleanServiceCharge)]);
       await db.run('COMMIT');
 
       res.json({
@@ -113,10 +137,118 @@ app.put('/api/settings', async (req, res, next) => {
 });
 
 /**
+ * GET /api/backup
+ * Exports settings, menu items, and tables as JSON.
+ */
+app.get('/api/backup', async (_req, res, next) => {
+  try {
+    const db = await getDbConnection();
+    const settings = await db.all('SELECT * FROM settings');
+    const menuItems = await db.all('SELECT * FROM menu_items');
+    const tables = await db.all('SELECT * FROM tables');
+
+    res.json({
+      success: true,
+      backup: {
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        settings,
+        menuItems,
+        tables
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/restore
+ * Restores settings, menu items, and tables from JSON.
+ */
+app.post('/api/restore', async (req, res, next) => {
+  try {
+    const { backup } = req.body;
+    if (!backup || !backup.settings || !backup.menuItems) {
+      const error = new Error('Invalid backup format. Backup must contain settings and menuItems.');
+      error.statusCode = 400;
+      return next(error);
+    }
+
+    const db = await getDbConnection();
+    await db.run('BEGIN TRANSACTION');
+
+    try {
+      // Clear existing configuration tables
+      await db.run('DELETE FROM settings');
+      await db.run('DELETE FROM menu_items');
+      await db.run('DELETE FROM tables');
+
+      // Restore settings
+      if (Array.isArray(backup.settings)) {
+        const stmt = await db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+        for (const s of backup.settings) {
+          if (s.key && s.value !== undefined) {
+            await stmt.run(s.key, s.value);
+          }
+        }
+        await stmt.finalize();
+      }
+
+      // Restore menu items
+      if (Array.isArray(backup.menuItems)) {
+        const stmt = await db.prepare(
+          `INSERT INTO menu_items (id, name, price, category, subcategory, is_veg, is_available, image_url, created_at, updated_at) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        for (const item of backup.menuItems) {
+          await stmt.run(
+            item.id || null,
+            item.name,
+            item.price,
+            item.category,
+            item.subcategory || item.category,
+            item.is_veg !== undefined ? item.is_veg : (item.isVeg ? 1 : 0),
+            item.is_available !== undefined ? item.is_available : (item.isAvailable ? 1 : 1),
+            item.image_url || item.imageUrl || null,
+            item.created_at || new Date().toISOString(),
+            item.updated_at || new Date().toISOString()
+          );
+        }
+        await stmt.finalize();
+      }
+
+      // Restore tables if present
+      if (Array.isArray(backup.tables)) {
+        const stmt = await db.prepare('INSERT OR IGNORE INTO tables (id, table_number, created_at) VALUES (?, ?, ?)');
+        for (const t of backup.tables) {
+          if (t.table_number) {
+            await stmt.run(t.id || null, String(t.table_number).trim(), t.created_at || new Date().toISOString());
+          }
+        }
+        await stmt.finalize();
+      }
+
+      await db.run('COMMIT');
+      res.json({
+        success: true,
+        message: 'Database restored successfully'
+      });
+    } catch (txErr) {
+      await db.run('ROLLBACK');
+      throw txErr;
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+
+/**
  * GET /api/menu
  * Exposes all menu items, including availability status.
  */
-app.get('/api/menu', async (req, res, next) => {
+app.get('/api/menu', async (_req, res, next) => {
   try {
     const db = await getDbConnection();
     const items = await db.all('SELECT * FROM menu_items ORDER BY category ASC, name ASC');
@@ -268,6 +400,14 @@ app.delete('/api/menu/:id', async (req, res, next) => {
       return next(error);
     }
 
+    // Check if item is referenced in any order_items
+    const referenced = await db.get('SELECT 1 FROM order_items WHERE menu_item_id = ? LIMIT 1', [id]);
+    if (referenced) {
+      const error = new Error('Cannot delete menu item because it is referenced in existing orders.');
+      error.statusCode = 409; // Conflict
+      return next(error);
+    }
+
     await db.run('DELETE FROM menu_items WHERE id = ?', [id]);
 
     res.json({
@@ -375,17 +515,14 @@ app.post('/api/orders', async (req, res, next) => {
         'INSERT INTO order_items (order_id, menu_item_id, quantity, price) VALUES (?, ?, ?, ?)'
       );
 
-      try {
-        for (const item of items) {
-          if (!item.id || !item.quantity || !item.price) {
-            throw new Error('Invalid order item data');
-          }
-          await insertItemStmt.run(orderId, item.id, item.quantity, item.price);
+      for (const item of items) {
+        if (!item.id || !item.quantity || !item.price) {
+          throw new Error('Invalid order item data');
         }
-      } finally {
-        await insertItemStmt.finalize();
+        await insertItemStmt.run(orderId, item.id, item.quantity, item.price);
       }
 
+      await insertItemStmt.finalize();
       await db.run('COMMIT');
 
       // Fetch precise creation time for success receipt
@@ -410,59 +547,93 @@ app.post('/api/orders', async (req, res, next) => {
 /**
  * GET /api/orders
  * Returns all active and served orders.
- * Optimized using a single SQL join to resolve the N+1 query problem.
  */
-app.get('/api/orders', async (req, res, next) => {
+app.get('/api/orders', async (_req, res, next) => {
   try {
     const db = await getDbConnection();
+    const orders = await db.all('SELECT * FROM orders ORDER BY created_at DESC');
     
-    // Execute a single join query to fetch all orders along with their items
-    const rows = await db.all(`
-      SELECT 
-        o.id as order_id, 
-        o.table_number, 
-        o.total_amount, 
-        o.status, 
-        o.created_at as order_created_at, 
-        o.updated_at as order_updated_at,
-        oi.quantity, 
-        oi.price, 
-        mi.name as menu_item_name
-      FROM orders o
-      LEFT JOIN order_items oi ON o.id = oi.order_id
-      LEFT JOIN menu_items mi ON oi.menu_item_id = mi.id
-      ORDER BY o.created_at DESC
-    `);
-    
-    // Group items by order_id
-    const ordersMap = new Map();
-    for (const row of rows) {
-      if (!ordersMap.has(row.order_id)) {
-        ordersMap.set(row.order_id, {
-          id: row.order_id,
-          tableNumber: row.table_number,
-          totalAmount: row.total_amount,
-          status: row.status,
-          createdAt: row.order_created_at,
-          updatedAt: row.order_updated_at,
-          items: []
-        });
-      }
+    const formattedOrders = [];
+    for (const order of orders) {
+      const items = await db.all(
+        `SELECT oi.quantity, oi.price, mi.name as menu_item_name 
+         FROM order_items oi 
+         LEFT JOIN menu_items mi ON oi.menu_item_id = mi.id 
+         WHERE oi.order_id = ?`,
+        [order.id]
+      );
       
-      if (row.quantity !== null && row.quantity !== undefined) {
-        ordersMap.get(row.order_id).items.push({
-          name: row.menu_item_name || 'Deleted Menu Item',
-          quantity: row.quantity,
-          price: row.price
-        });
-      }
+      formattedOrders.push({
+        id: order.id,
+        tableNumber: order.table_number,
+        totalAmount: order.total_amount,
+        status: order.status,
+        paymentStatus: order.payment_status || 'Unpaid',
+        createdAt: order.created_at,
+        acceptedAt: order.accepted_at,
+        readyAt: order.ready_at,
+        servedAt: order.served_at,
+        updatedAt: order.updated_at,
+        items: items.map(it => ({
+          name: it.menu_item_name || 'Deleted Menu Item',
+          quantity: it.quantity,
+          price: it.price
+        }))
+      });
     }
-    
-    const formattedOrders = Array.from(ordersMap.values());
 
     res.json({
       success: true,
       data: formattedOrders
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/orders/:id
+ * Returns details and status of a single order.
+ */
+app.get('/api/orders/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const db = await getDbConnection();
+    const order = await db.get('SELECT * FROM orders WHERE id = ?', [id]);
+    
+    if (!order) {
+      const error = new Error('Order not found');
+      error.statusCode = 404;
+      return next(error);
+    }
+    
+    const items = await db.all(
+      `SELECT oi.quantity, oi.price, mi.name as menu_item_name 
+       FROM order_items oi 
+       LEFT JOIN menu_items mi ON oi.menu_item_id = mi.id 
+       WHERE oi.order_id = ?`,
+      [order.id]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        id: order.id,
+        tableNumber: order.table_number,
+        totalAmount: order.total_amount,
+        status: order.status,
+        paymentStatus: order.payment_status || 'Unpaid',
+        createdAt: order.created_at,
+        acceptedAt: order.accepted_at,
+        readyAt: order.ready_at,
+        servedAt: order.served_at,
+        updatedAt: order.updated_at,
+        items: items.map(it => ({
+          name: it.menu_item_name || 'Deleted Menu Item',
+          quantity: it.quantity,
+          price: it.price
+        }))
+      }
     });
   } catch (error) {
     next(error);
@@ -478,7 +649,7 @@ app.put('/api/orders/:id/status', async (req, res, next) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    const validStatuses = ['pending', 'preparing', 'ready', 'served', 'completed', 'cancelled'];
+    const validStatuses = ['pending', 'accepted', 'preparing', 'ready', 'served', 'completed', 'cancelled'];
     if (!status || !validStatuses.includes(status)) {
       const error = new Error('Invalid or missing order status');
       error.statusCode = 400;
@@ -494,10 +665,21 @@ app.put('/api/orders/:id/status', async (req, res, next) => {
       return next(error);
     }
 
-    await db.run(
-      'UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [status, id]
-    );
+    let query = 'UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP';
+    const params = [status];
+
+    if (status === 'accepted') {
+      query += ', accepted_at = CURRENT_TIMESTAMP';
+    } else if (status === 'ready') {
+      query += ', ready_at = CURRENT_TIMESTAMP';
+    } else if (status === 'served') {
+      query += ', served_at = CURRENT_TIMESTAMP';
+    }
+
+    query += ' WHERE id = ?';
+    params.push(id);
+
+    await db.run(query, params);
 
     res.json({
       success: true,
@@ -508,8 +690,45 @@ app.put('/api/orders/:id/status', async (req, res, next) => {
   }
 });
 
+/**
+ * PUT /api/orders/:id/payment
+ * Updates the payment status of an order.
+ */
+app.put('/api/orders/:id/payment', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { paymentStatus } = req.body;
+
+    if (!paymentStatus || (paymentStatus !== 'Paid' && paymentStatus !== 'Unpaid')) {
+      const error = new Error('Invalid or missing payment status');
+      error.statusCode = 400;
+      return next(error);
+    }
+
+    const db = await getDbConnection();
+    const order = await db.get('SELECT * FROM orders WHERE id = ?', [id]);
+    if (!order) {
+      const error = new Error('Order not found');
+      error.statusCode = 404;
+      return next(error);
+    }
+
+    await db.run(
+      'UPDATE orders SET payment_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [paymentStatus, id]
+    );
+
+    res.json({
+      success: true,
+      message: `Order payment status updated to ${paymentStatus} successfully`
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Health Check API
-app.get('/api/health', async (req, res, next) => {
+app.get('/api/health', async (_req, res, next) => {
   try {
     const db = await getDbConnection();
     await db.get('SELECT 1');
@@ -536,13 +755,11 @@ app.use((req, res, next) => {
 
 app.use(errorHandler);
 
-let serverInstance = null;
-
 async function startServer() {
   try {
     await getDbConnection();
     
-    serverInstance = app.listen(PORT, () => {
+    app.listen(PORT, () => {
       console.log(`==================================================`);
       console.log(`🚀 Lakshmi Ganesh Restaurant API server is running`);
       console.log(`📡 Port: ${PORT}`);
@@ -554,27 +771,5 @@ async function startServer() {
     process.exit(1);
   }
 }
-
-// Graceful shutdown
-const gracefulShutdown = async (signal) => {
-  console.log(`\n[Server] Received ${signal}. Shutting down gracefully...`);
-  if (serverInstance) {
-    serverInstance.close(() => {
-      console.log('[Server] HTTP server closed.');
-    });
-  }
-  try {
-    const db = await getDbConnection();
-    await db.close();
-    console.log('[Database] SQLite connection closed.');
-    process.exit(0);
-  } catch (err) {
-    console.error('[Server] Error during database shutdown:', err);
-    process.exit(1);
-  }
-};
-
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 startServer();

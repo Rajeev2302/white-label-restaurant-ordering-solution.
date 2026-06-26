@@ -6,16 +6,19 @@
   "workspaces": [
     "backend",
     "frontend",
-    "staff-dashboard"
+    "staff-dashboard",
+    "kitchen-dashboard"
   ],
   "scripts": {
     "dev:backend": "npm run dev --workspace=backend",
     "dev:frontend": "npm run dev --workspace=frontend",
     "dev:staff": "npm run dev --workspace=staff-dashboard",
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:staff\"",
+    "dev:kitchen": "npm run dev --workspace=kitchen-dashboard",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:staff\" \"npm run dev:kitchen\"",
     "build:frontend": "npm run build --workspace=frontend",
     "build:staff": "npm run build --workspace=staff-dashboard",
-    "build": "npm run build:frontend && npm run build:staff"
+    "build:kitchen": "npm run build --workspace=kitchen-dashboard",
+    "build": "npm run build:frontend && npm run build:staff && npm run build:kitchen"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
