@@ -9,6 +9,31 @@
     <title>Lakshmi Ganesh Restaurant | QR Order & Dine</title>
     <meta name="description" content="Welcome to Lakshmi Ganesh Restaurant. Scan the QR code on your table to view our delicious menu, place your order, and pay instantly." />
 
+    <!-- PWA Metadata & Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#16a34a" />
+    
+    <!-- Apple Mobile Web App Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="ServeQR" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+
+    <!-- Service Worker Registration -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then((reg) => {
+              console.log('[Service Worker] Registered successfully:', reg.scope);
+            })
+            .catch((err) => {
+              console.error('[Service Worker] Registration failed:', err);
+            });
+        });
+      }
+    </script>
+
     <!-- Google Fonts for Modern Typography -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
