@@ -324,26 +324,25 @@ export async function seedDatabase(db) {
     { name: '2 Liter Drinks', price: 100, category: 'Cool Drinks', subcategory: 'Cool Drinks', is_veg: 1 }
   ];
 
-  const stmt = await db.prepare(
-    `INSERT INTO menu_items (name, price, category, subcategory, is_veg, image_url) 
-     VALUES (?, ?, ?, ?, ?, ?)`
-  );
-
+  console.log('[Seed] Inserting menu items into PostgreSQL...');
   for (const item of menuItems) {
     const imageUrl = getImageForCategory(item.name, item.category);
-    await stmt.run(item.name, item.price, item.category, item.subcategory, item.is_veg, imageUrl);
+    await db.query(
+      `INSERT INTO menu_items (name, price, category, subcategory, is_veg, image_url) 
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [item.name, item.price, item.category, item.subcategory, item.is_veg, imageUrl]
+    );
   }
-
-  await stmt.finalize();
 
   console.log(`[Seed] Successfully inserted ${menuItems.length} menu items.`);
 
   console.log('[Seed] Seeding initial dining tables...');
   const tableNumbers = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
-  const tableStmt = await db.prepare('INSERT OR IGNORE INTO tables (table_number) VALUES (?)');
   for (const tNum of tableNumbers) {
-    await tableStmt.run(tNum);
+    await db.query(
+      'INSERT INTO tables (table_number) VALUES ($1) ON CONFLICT (table_number) DO NOTHING',
+      [tNum]
+    );
   }
-  await tableStmt.finalize();
   console.log(`[Seed] Seeded ${tableNumbers.length} active dining tables.`);
 }

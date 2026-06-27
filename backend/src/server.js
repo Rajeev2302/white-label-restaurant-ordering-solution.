@@ -110,25 +110,25 @@ app.put('/api/settings', async (req, res, next) => {
 
     const db = await getDbConnection();
 
-    await db.run('BEGIN TRANSACTION');
+    await db.query('BEGIN');
     try {
-      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('restaurant_name', ?)", [restaurantName.trim()]);
-      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('logo_url', ?)", [(logoUrl || '').trim()]);
-      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('phone_number', ?)", [(phoneNumber || '').trim()]);
-      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('address', ?)", [(address || '').trim()]);
-      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('theme_color', ?)", [(themeColor || '#d4af37').trim()]);
-      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('currency_symbol', ?)", [(currencySymbol || '₹').trim()]);
-      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('tagline', ?)", [(tagline || '').trim()]);
-      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('gst_percentage', ?)", [String(cleanGst)]);
-      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('service_charge_percentage', ?)", [String(cleanServiceCharge)]);
-      await db.run('COMMIT');
+      await db.query("INSERT INTO settings (key, value) VALUES ('restaurant_name', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [restaurantName.trim()]);
+      await db.query("INSERT INTO settings (key, value) VALUES ('logo_url', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [(logoUrl || '').trim()]);
+      await db.query("INSERT INTO settings (key, value) VALUES ('phone_number', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [(phoneNumber || '').trim()]);
+      await db.query("INSERT INTO settings (key, value) VALUES ('address', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [(address || '').trim()]);
+      await db.query("INSERT INTO settings (key, value) VALUES ('theme_color', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [(themeColor || '#d4af37').trim()]);
+      await db.query("INSERT INTO settings (key, value) VALUES ('currency_symbol', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [(currencySymbol || '₹').trim()]);
+      await db.query("INSERT INTO settings (key, value) VALUES ('tagline', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [(tagline || '').trim()]);
+      await db.query("INSERT INTO settings (key, value) VALUES ('gst_percentage', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [String(cleanGst)]);
+      await db.query("INSERT INTO settings (key, value) VALUES ('service_charge_percentage', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [String(cleanServiceCharge)]);
+      await db.query('COMMIT');
 
       res.json({
         success: true,
         message: 'Settings updated successfully'
       });
     } catch (txErr) {
-      await db.run('ROLLBACK');
+      await db.query('ROLLBACK');
       throw txErr;
     }
   } catch (error) {
@@ -176,66 +176,77 @@ app.post('/api/restore', async (req, res, next) => {
     }
 
     const db = await getDbConnection();
-    await db.run('BEGIN TRANSACTION');
+    await db.query('BEGIN');
 
     try {
       // Clear existing configuration tables
-      await db.run('DELETE FROM settings');
-      await db.run('DELETE FROM menu_items');
-      await db.run('DELETE FROM tables');
+      await db.query('DELETE FROM settings');
+      await db.query('DELETE FROM menu_items');
+      await db.query('DELETE FROM tables');
 
       // Restore settings
       if (Array.isArray(backup.settings)) {
-        const stmt = await db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
         for (const s of backup.settings) {
           if (s.key && s.value !== undefined) {
-            await stmt.run(s.key, s.value);
+            await db.query(
+              'INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value',
+              [s.key, s.value]
+            );
           }
         }
-        await stmt.finalize();
       }
 
       // Restore menu items
       if (Array.isArray(backup.menuItems)) {
-        const stmt = await db.prepare(
-          `INSERT INTO menu_items (id, name, price, category, subcategory, is_veg, is_available, image_url, created_at, updated_at) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        );
         for (const item of backup.menuItems) {
-          await stmt.run(
-            item.id || null,
-            item.name,
-            item.price,
-            item.category,
-            item.subcategory || item.category,
-            item.is_veg !== undefined ? item.is_veg : (item.isVeg ? 1 : 0),
-            item.is_available !== undefined ? item.is_available : (item.isAvailable ? 1 : 1),
-            item.image_url || item.imageUrl || null,
-            item.created_at || new Date().toISOString(),
-            item.updated_at || new Date().toISOString()
+          await db.query(
+            `INSERT INTO menu_items (id, name, price, category, subcategory, is_veg, is_available, image_url, created_at, updated_at) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             ON CONFLICT (id) DO UPDATE SET 
+               name = EXCLUDED.name, 
+               price = EXCLUDED.price, 
+               category = EXCLUDED.category, 
+               subcategory = EXCLUDED.subcategory, 
+               is_veg = EXCLUDED.is_veg, 
+               is_available = EXCLUDED.is_available, 
+               image_url = EXCLUDED.image_url, 
+               created_at = EXCLUDED.created_at, 
+               updated_at = EXCLUDED.updated_at`,
+            [
+              item.id || null,
+              item.name,
+              item.price,
+              item.category,
+              item.subcategory || item.category,
+              item.is_veg !== undefined ? item.is_veg : (item.isVeg ? 1 : 0),
+              item.is_available !== undefined ? item.is_available : (item.isAvailable ? 1 : 1),
+              item.image_url || item.imageUrl || null,
+              item.created_at || new Date().toISOString(),
+              item.updated_at || new Date().toISOString()
+            ]
           );
         }
-        await stmt.finalize();
       }
 
       // Restore tables if present
       if (Array.isArray(backup.tables)) {
-        const stmt = await db.prepare('INSERT OR IGNORE INTO tables (id, table_number, created_at) VALUES (?, ?, ?)');
         for (const t of backup.tables) {
           if (t.table_number) {
-            await stmt.run(t.id || null, String(t.table_number).trim(), t.created_at || new Date().toISOString());
+            await db.query(
+              'INSERT INTO tables (id, table_number, created_at) VALUES ($1, $2, $3) ON CONFLICT (table_number) DO NOTHING',
+              [t.id || null, String(t.table_number).trim(), t.created_at || new Date().toISOString()]
+            );
           }
         }
-        await stmt.finalize();
       }
 
-      await db.run('COMMIT');
+      await db.query('COMMIT');
       res.json({
         success: true,
         message: 'Database restored successfully'
       });
     } catch (txErr) {
-      await db.run('ROLLBACK');
+      await db.query('ROLLBACK');
       throw txErr;
     }
   } catch (error) {
@@ -299,9 +310,9 @@ app.post('/api/menu', async (req, res, next) => {
 
     const db = await getDbConnection();
 
-    const result = await db.run(
+    const result = await db.query(
       `INSERT INTO menu_items (name, price, category, subcategory, is_veg, is_available, image_url) 
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
       [
         name.trim(),
         parseFloat(price),
@@ -316,7 +327,7 @@ app.post('/api/menu', async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Menu item created successfully',
-      id: result.lastID
+      id: result.rows[0].id
     });
   } catch (error) {
     next(error);
@@ -351,17 +362,17 @@ app.put('/api/menu/:id', async (req, res, next) => {
     const db = await getDbConnection();
 
     // Check if item exists
-    const item = await db.get('SELECT * FROM menu_items WHERE id = ?', [id]);
+    const item = await db.get('SELECT * FROM menu_items WHERE id = $1', [id]);
     if (!item) {
       const error = new Error('Menu item not found');
       error.statusCode = 404;
       return next(error);
     }
 
-    await db.run(
+    await db.query(
       `UPDATE menu_items 
-       SET name = ?, price = ?, category = ?, subcategory = ?, is_veg = ?, is_available = ?, image_url = ?, updated_at = CURRENT_TIMESTAMP 
-       WHERE id = ?`,
+       SET name = $1, price = $2, category = $3, subcategory = $4, is_veg = $5, is_available = $6, image_url = $7, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $8`,
       [
         name.trim(),
         parseFloat(price),
@@ -393,7 +404,7 @@ app.delete('/api/menu/:id', async (req, res, next) => {
     const db = await getDbConnection();
 
     // Check if item exists
-    const item = await db.get('SELECT * FROM menu_items WHERE id = ?', [id]);
+    const item = await db.get('SELECT * FROM menu_items WHERE id = $1', [id]);
     if (!item) {
       const error = new Error('Menu item not found');
       error.statusCode = 404;
@@ -401,14 +412,14 @@ app.delete('/api/menu/:id', async (req, res, next) => {
     }
 
     // Check if item is referenced in any order_items
-    const referenced = await db.get('SELECT 1 FROM order_items WHERE menu_item_id = ? LIMIT 1', [id]);
+    const referenced = await db.get('SELECT 1 FROM order_items WHERE menu_item_id = $1 LIMIT 1', [id]);
     if (referenced) {
       const error = new Error('Cannot delete menu item because it is referenced in existing orders.');
       error.statusCode = 409; // Conflict
       return next(error);
     }
 
-    await db.run('DELETE FROM menu_items WHERE id = ?', [id]);
+    await db.query('DELETE FROM menu_items WHERE id = $1', [id]);
 
     res.json({
       success: true,
@@ -435,8 +446,8 @@ app.post('/api/tables', async (req, res, next) => {
 
     const db = await getDbConnection();
     
-    await db.run(
-      'INSERT OR IGNORE INTO tables (table_number) VALUES (?)',
+    await db.query(
+      'INSERT INTO tables (table_number) VALUES ($1) ON CONFLICT (table_number) DO NOTHING',
       [String(table_number).trim()]
     );
 
@@ -482,10 +493,10 @@ app.post('/api/orders', async (req, res, next) => {
     const duplicateWindowSec = 15;
     const potentialDuplicate = await db.get(
       `SELECT * FROM orders 
-       WHERE table_number = ? 
-         AND total_amount = ? 
+       WHERE table_number = $1 
+         AND total_amount = $2 
          AND status = 'pending' 
-         AND (strftime('%s', 'now') - strftime('%s', created_at)) < ?`,
+         AND (EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) - EXTRACT(EPOCH FROM created_at)) < $3`,
       [String(table_number).trim(), Number(total_amount), duplicateWindowSec]
     );
 
@@ -496,37 +507,35 @@ app.post('/api/orders', async (req, res, next) => {
     }
 
     // Use a transaction
-    await db.run('BEGIN TRANSACTION');
+    await db.query('BEGIN');
 
     try {
-      await db.run(
-        'INSERT OR IGNORE INTO tables (table_number) VALUES (?)',
+      await db.query(
+        'INSERT INTO tables (table_number) VALUES ($1) ON CONFLICT (table_number) DO NOTHING',
         [String(table_number).trim()]
       );
 
-      const orderResult = await db.run(
-        'INSERT INTO orders (table_number, total_amount, status) VALUES (?, ?, ?)',
+      const orderResult = await db.query(
+        'INSERT INTO orders (table_number, total_amount, status) VALUES ($1, $2, $3) RETURNING id',
         [String(table_number).trim(), Number(total_amount), 'pending']
       );
       
-      const orderId = orderResult.lastID;
-
-      const insertItemStmt = await db.prepare(
-        'INSERT INTO order_items (order_id, menu_item_id, quantity, price) VALUES (?, ?, ?, ?)'
-      );
+      const orderId = orderResult.rows[0].id;
 
       for (const item of items) {
         if (!item.id || !item.quantity || !item.price) {
           throw new Error('Invalid order item data');
         }
-        await insertItemStmt.run(orderId, item.id, item.quantity, item.price);
+        await db.query(
+          'INSERT INTO order_items (order_id, menu_item_id, quantity, price) VALUES ($1, $2, $3, $4)',
+          [orderId, item.id, item.quantity, item.price]
+        );
       }
 
-      await insertItemStmt.finalize();
-      await db.run('COMMIT');
+      await db.query('COMMIT');
 
       // Fetch precise creation time for success receipt
-      const createdOrder = await db.get('SELECT created_at FROM orders WHERE id = ?', [orderId]);
+      const createdOrder = await db.get('SELECT created_at FROM orders WHERE id = $1', [orderId]);
 
       res.status(201).json({
         success: true,
@@ -559,7 +568,7 @@ app.get('/api/orders', async (_req, res, next) => {
         `SELECT oi.quantity, oi.price, mi.name as menu_item_name 
          FROM order_items oi 
          LEFT JOIN menu_items mi ON oi.menu_item_id = mi.id 
-         WHERE oi.order_id = ?`,
+         WHERE oi.order_id = $1`,
         [order.id]
       );
       
@@ -599,7 +608,7 @@ app.get('/api/orders/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
     const db = await getDbConnection();
-    const order = await db.get('SELECT * FROM orders WHERE id = ?', [id]);
+    const order = await db.get('SELECT * FROM orders WHERE id = $1', [id]);
     
     if (!order) {
       const error = new Error('Order not found');
@@ -611,7 +620,7 @@ app.get('/api/orders/:id', async (req, res, next) => {
       `SELECT oi.quantity, oi.price, mi.name as menu_item_name 
        FROM order_items oi 
        LEFT JOIN menu_items mi ON oi.menu_item_id = mi.id 
-       WHERE oi.order_id = ?`,
+       WHERE oi.order_id = $1`,
       [order.id]
     );
 
@@ -658,14 +667,14 @@ app.put('/api/orders/:id/status', async (req, res, next) => {
 
     const db = await getDbConnection();
     
-    const order = await db.get('SELECT * FROM orders WHERE id = ?', [id]);
+    const order = await db.get('SELECT * FROM orders WHERE id = $1', [id]);
     if (!order) {
       const error = new Error('Order not found');
       error.statusCode = 404;
       return next(error);
     }
 
-    let query = 'UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP';
+    let query = 'UPDATE orders SET status = $1, updated_at = CURRENT_TIMESTAMP';
     const params = [status];
 
     if (status === 'accepted') {
@@ -676,10 +685,10 @@ app.put('/api/orders/:id/status', async (req, res, next) => {
       query += ', served_at = CURRENT_TIMESTAMP';
     }
 
-    query += ' WHERE id = ?';
+    query += ' WHERE id = $2';
     params.push(id);
 
-    await db.run(query, params);
+    await db.query(query, params);
 
     res.json({
       success: true,
@@ -706,15 +715,15 @@ app.put('/api/orders/:id/payment', async (req, res, next) => {
     }
 
     const db = await getDbConnection();
-    const order = await db.get('SELECT * FROM orders WHERE id = ?', [id]);
+    const order = await db.get('SELECT * FROM orders WHERE id = $1', [id]);
     if (!order) {
       const error = new Error('Order not found');
       error.statusCode = 404;
       return next(error);
     }
 
-    await db.run(
-      'UPDATE orders SET payment_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    await db.query(
+      'UPDATE orders SET payment_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
       [paymentStatus, id]
     );
 
@@ -755,7 +764,7 @@ app.delete('/api/orders/:id', async (req, res, next) => {
     const { id } = req.params;
     const db = await getDbConnection();
     
-    const order = await db.get('SELECT * FROM orders WHERE id = ?', [id]);
+    const order = await db.get('SELECT * FROM orders WHERE id = $1', [id]);
     if (!order) {
       const error = new Error('Order not found');
       error.statusCode = 404;
@@ -769,7 +778,7 @@ app.delete('/api/orders/:id', async (req, res, next) => {
       return next(error);
     }
 
-    await db.run('DELETE FROM orders WHERE id = ?', [id]);
+    await db.query('DELETE FROM orders WHERE id = $1', [id]);
     
     res.json({
       success: true,
